@@ -138,6 +138,7 @@ pub struct ChunkingConfigs(FxHashMap<ResolvedVc<Box<dyn ChunkType>>, ChunkingCon
 pub trait ChunkingContext {
     #[turbo_tasks::function]
     fn name(self: Vc<Self>) -> Vc<RcStr>;
+    /// Whether to use file URIs in source maps.
     #[turbo_tasks::function]
     fn should_use_file_source_map_uris(self: Vc<Self>) -> Vc<bool>;
     /// The root path of the project

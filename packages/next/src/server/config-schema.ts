@@ -308,6 +308,7 @@ export const experimentalSchema = {
   turbopackUseBuiltinBabel: z.boolean().optional(),
   turbopackUseBuiltinSass: z.boolean().optional(),
   turbopackModuleIds: z.enum(['named', 'deterministic']).optional(),
+  turbopackUseWholeAppModuleGraphInDev: z.boolean().optional(),
   optimizePackageImports: z.array(z.string()).optional(),
   optimizeServerReact: z.boolean().optional(),
   clientTraceMetadata: z.array(z.string()).optional(),

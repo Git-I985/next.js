@@ -809,7 +809,12 @@ impl Project {
 
     #[turbo_tasks::function]
     pub(super) async fn per_page_module_graph(&self) -> Result<Vc<bool>> {
-        Ok(Vc::cell(*self.mode.await? == NextMode::Development))
+        Ok(Vc::cell(
+            !*self
+                .next_config
+                .turbo_use_whole_app_module_graph(*self.mode)
+                .await?,
+        ))
     }
 
     #[turbo_tasks::function]
@@ -1021,7 +1026,8 @@ impl Project {
             };
 
             // At this point all modules have been computed and we can get rid of the node.js
-            // process pools
+            // process pools, in watch mode we don't completely turn it down since we do expect
+            // invalidations
             if *self.is_watch_enabled().await? {
                 turbopack_node::evaluate::scale_down();
             } else {
