@@ -41,7 +41,7 @@ describe('app-dir - server source maps', () => {
         )
       })
       expect(normalizeCliOutput(next.cliOutput.slice(outputIndex))).toContain(
-        '\nError: rsc-error-log' +
+        'Error: rsc-error-log' +
           '\n    at logError (app/rsc-error-log/page.js:4:17)' +
           '\n    at Page (app/rsc-error-log/page.js:9:3)' +
           '\n  2 |' +
@@ -82,7 +82,7 @@ describe('app-dir - server source maps', () => {
         )
       })
       expect(normalizeCliOutput(next.cliOutput.slice(outputIndex))).toContain(
-        '\nError: rsc-error-log-cause' +
+        'Error: rsc-error-log-cause' +
           '\n    at logError (app/rsc-error-log-cause/page.js:2:17)' +
           '\n    at Page (app/rsc-error-log-cause/page.js:8:3)' +
           '\n  1 | function logError(cause) {' +
@@ -140,7 +140,7 @@ describe('app-dir - server source maps', () => {
       })
       expect(normalizeCliOutput(next.cliOutput.slice(outputIndex))).toContain(
         isTurbopack
-          ? '\nError: ssr-error-log-ignore-listed' +
+          ? 'Error: ssr-error-log-ignore-listed' +
               '\n    at logError (app/ssr-error-log-ignore-listed/page.js:9:17)' +
               '\n    at runWithInternalIgnored (app/ssr-error-log-ignore-listed/page.js:19:13)' +
               '\n    at runWithExternalSourceMapped (app/ssr-error-log-ignore-listed/page.js:18:29)' +
@@ -154,7 +154,7 @@ describe('app-dir - server source maps', () => {
               '\n    at Page (app/ssr-error-log-ignore-listed/page.js:14:14)' +
               '\n   7 |' +
               '\n'
-          : '\nError: ssr-error-log-ignore-listed' +
+          : 'Error: ssr-error-log-ignore-listed' +
               '\n    at logError (app/ssr-error-log-ignore-listed/page.js:9:17)' +
               '\n    at runWithInternalIgnored (app/ssr-error-log-ignore-listed/page.js:19:13)' +
               // TODO(veil-NDX-910): Webpacks's sourcemap loader drops `ignoreList`
@@ -393,7 +393,7 @@ describe('app-dir - server source maps', () => {
         expect(normalizeCliOutput(next.cliOutput.slice(outputIndex))).toContain(
           // Node.js is fine with invalid URLs in index maps apparently.
           '' +
-            '\nError: bad-sourcemap' +
+            'Error: bad-sourcemap' +
             '\n    at logError (app/bad-sourcemap/custom:/[badhost]/app/bad-sourcemap/page.js:6:17)' +
             '\n    at Page (app/bad-sourcemap/custom:/[badhost]/app/bad-sourcemap/page.js:10:3)' +
             '\n'
@@ -404,7 +404,7 @@ describe('app-dir - server source maps', () => {
           // Feel free to adjust these locations. They're just here to showcase
           // sourcemapping is broken on invalid sources.
           '' +
-            `\nwebpack-internal:///(rsc)/./app/bad-sourcemap/page.js: Invalid source map. Only conformant source maps can be used to find the original code. Cause: TypeError [ERR_INVALID_ARG_TYPE]: The "payload" argument must be of type object. Received null` +
+            `webpack-internal:///(rsc)/./app/bad-sourcemap/page.js: Invalid source map. Only conformant source maps can be used to find the original code. Cause: TypeError [ERR_INVALID_ARG_TYPE]: The "payload" argument must be of type object. Received null` +
             '\nError: bad-sourcemap' +
             '\n    at logError (webpack-internal:///(rsc)/./app/bad-sourcemap/page.js:12:19)' +
             '\n    at Page (webpack-internal:///(rsc)/./app/bad-sourcemap/page.js:15:5)'
