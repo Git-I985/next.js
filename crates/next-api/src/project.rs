@@ -940,7 +940,6 @@ impl Project {
         // (like /_error) are available as fallbacks for error handling
         if !is_pages_entries_added && self.next_mode().await?.is_development() {
             endpoints.extend(pages_shared_endpoints());
-            is_pages_entries_added = true;
         }
 
         Ok(Vc::cell(endpoints))
