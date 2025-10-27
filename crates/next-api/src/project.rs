@@ -1014,16 +1014,9 @@ impl Project {
     #[turbo_tasks::function]
     pub async fn whole_app_module_graphs(self: ResolvedVc<Self>) -> Result<Vc<ModuleGraphs>> {
         async move {
-            let module_graphs_op = whole_app_module_graph_operation(self);
-            let module_graphs_vc = if self.next_mode().await?.is_production() {
-                module_graphs_op.connect()
-            } else {
-                // In development mode, we need to to take and drop the issues, otherwise every
-                // route will report all issues.
-                let vc = module_graphs_op.resolve_strongly_consistent().await?;
-                module_graphs_op.drop_issues();
-                *vc
-            };
+            let module_graphs_op = whole_app_module_graph_operation(self).connect();
+            // wait for it to be done before scaling down.
+            let _ = module_graphs_op.await;
 
             // At this point all modules have been computed and we can get rid of the node.js
             // process pools, in watch mode we don't completely turn it down since we do expect
@@ -1034,7 +1027,7 @@ impl Project {
                 turbopack_node::evaluate::scale_zero();
             }
 
-            Ok(module_graphs_vc)
+            Ok(module_graphs_op)
         }
         .instrument(tracing::info_span!("module graph for app"))
         .await
