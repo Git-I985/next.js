@@ -880,6 +880,13 @@ impl Project {
             endpoints.push(instrumentation.node_js);
             endpoints.push(instrumentation.edge);
         }
+        let pages_shared_endpoints = || {
+            vec![
+                entrypoints.pages_error_endpoint,
+                entrypoints.pages_app_endpoint,
+                entrypoints.pages_document_endpoint,
+            ]
+        };
 
         for (_, route) in entrypoints.routes.iter() {
             match route {
@@ -890,9 +897,7 @@ impl Project {
                     if !app_dir_only {
                         endpoints.push(*html_endpoint);
                         if !is_pages_entries_added {
-                            endpoints.push(entrypoints.pages_error_endpoint);
-                            endpoints.push(entrypoints.pages_app_endpoint);
-                            endpoints.push(entrypoints.pages_document_endpoint);
+                            endpoints.extend(pages_shared_endpoints());
                             is_pages_entries_added = true;
                         }
                         // This only exists in development mode for HMR
@@ -905,9 +910,7 @@ impl Project {
                     if !app_dir_only {
                         endpoints.push(*endpoint);
                         if !is_pages_entries_added {
-                            endpoints.push(entrypoints.pages_error_endpoint);
-                            endpoints.push(entrypoints.pages_app_endpoint);
-                            endpoints.push(entrypoints.pages_document_endpoint);
+                            endpoints.extend(pages_shared_endpoints());
                             is_pages_entries_added = true;
                         }
                     }
@@ -932,6 +935,12 @@ impl Project {
                     tracing::info!("WARN: conflict");
                 }
             }
+        }
+        // For app-only projects in dev mode, ensure pages shared endpoints
+        // (like /_error) are available as fallbacks for error handling
+        if !is_pages_entries_added && self.next_mode().await?.is_development() {
+            endpoints.extend(pages_shared_endpoints());
+            is_pages_entries_added = true;
         }
 
         Ok(Vc::cell(endpoints))
