@@ -1,14 +1,79 @@
+use std::fmt;
+
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use turbo_tasks::primitives::Regex;
+use regex::Regex;
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{Error as _, Visitor},
+    ser::SerializeTupleStruct,
+};
 use turbopack_node::route_matcher::{Param, Params, RouteMatcherRef};
 
 /// A regular expression that matches a path, with named capture groups for the
 /// dynamic parts of the path.
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct PathRegex {
     regex: Regex,
     named_params: Vec<NamedParam>,
+}
+
+impl PartialEq for PathRegex {
+    fn eq(&self, other: &Self) -> bool {
+        self.regex.as_str() == other.regex.as_str() && self.named_params == other.named_params
+    }
+}
+
+impl Eq for PathRegex {}
+
+impl Serialize for PathRegex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut ts = serializer.serialize_tuple_struct("PathRegex", 2)?;
+        ts.serialize_field(self.regex.as_str())?;
+        ts.serialize_field(&self.named_params)?;
+        ts.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for PathRegex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PathRegexVisitor;
+
+        impl<'de> Visitor<'de> for PathRegexVisitor {
+            type Value = PathRegex;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a PathRegex tuple struct")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let regex_str: String = seq
+                    .next_element()?
+                    .ok_or_else(|| A::Error::invalid_length(0, &self))?;
+                let named_params: Vec<NamedParam> = seq
+                    .next_element()?
+                    .ok_or_else(|| A::Error::invalid_length(1, &self))?;
+
+                let regex = Regex::new(&regex_str)
+                    .map_err(|e| A::Error::custom(format!("invalid regex: {e}")))?;
+
+                Ok(PathRegex {
+                    regex,
+                    named_params,
+                })
+            }
+        }
+
+        deserializer.deserialize_tuple_struct("PathRegex", 2, PathRegexVisitor)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -153,7 +218,7 @@ impl PathRegexBuilder {
     pub fn build(mut self) -> Result<PathRegex> {
         self.regex_str += "$";
         Ok(PathRegex {
-            regex: Regex(regex::Regex::new(&self.regex_str).with_context(|| "invalid path regex")?),
+            regex: regex::Regex::new(&self.regex_str).with_context(|| "invalid path regex")?,
             named_params: self.named_params,
         })
     }
@@ -162,5 +227,20 @@ impl PathRegexBuilder {
 impl Default for PathRegexBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_path_regex_serde_roundtrip() {
+        let path_regex = super::super::build_path_regex("/api/[version]/[[...path]]").unwrap();
+
+        let serialized = serde_json::to_string(&path_regex).unwrap();
+        let deserialized: PathRegex = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(path_regex, deserialized);
     }
 }
