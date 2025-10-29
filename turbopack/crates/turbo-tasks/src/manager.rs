@@ -572,7 +572,7 @@ impl<B: Backend + 'static> TurboTasks<B> {
             .scope(
                 self.pin(),
                 CURRENT_TASK_STATE.scope(current_task_state, async {
-                    let (result, _duration, _alloc_info) = CaptureFuture::new(future).await;
+                    let result = CaptureFuture::new(future).await;
 
                     // wait for all spawned local tasks using `local` to finish
                     let ltt =
@@ -730,7 +730,7 @@ impl<B: Backend + 'static> TurboTasks<B> {
                     };
 
                     async {
-                        let (result, duration, alloc_info) = CaptureFuture::new(future).await;
+                        let result = CaptureFuture::new(future).await;
 
                         // wait for all spawned local tasks using `local` to finish
                         let ltt = CURRENT_TASK_STATE
@@ -752,8 +752,6 @@ impl<B: Backend + 'static> TurboTasks<B> {
                             .with(|ts| ts.write().unwrap().cell_counters.take().unwrap());
                         this.backend.task_execution_completed(
                             task_id,
-                            duration,
-                            alloc_info.memory_usage(),
                             result,
                             &cell_counters,
                             stateful,
@@ -829,7 +827,7 @@ impl<B: Backend + 'static> TurboTasks<B> {
             let TaskExecutionSpec { future, span } =
                 crate::task::local_task::get_local_task_execution_spec(&*this, &ty, persistence);
             async move {
-                let (result, _duration, _memory_usage) = CaptureFuture::new(future).await;
+                let result = CaptureFuture::new(future).await;
 
                 let result = match result {
                     Ok(Ok(raw_vc)) => Ok(raw_vc),
