@@ -11,6 +11,13 @@ use std::{
 
 use RopeElem::{Local, Shared};
 use anyhow::{Context, Result};
+use bincode::{
+    Decode, Encode,
+    de::{Decoder, read::Reader as _},
+    enc::{Encoder, write::Writer as _},
+    error::{DecodeError, EncodeError},
+    impl_borrow_decode,
+};
 use bytes::{Buf, Bytes};
 use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -380,6 +387,43 @@ impl<'de> Deserialize<'de> for Rope {
         Ok(Rope::from(bytes))
     }
 }
+
+/// Encode as a len + raw bytes format using the encoder's [`bincode::enc::write::Writer`]. Encoding
+/// [`Rope::to_bytes`] instead would be easier, but would require copying to an intermediate buffer.
+///
+/// This len + bytes format is similar to how bincode would normally encode a `&[u8]`:
+/// https://docs.rs/bincode/latest/bincode/spec/index.html#collections
+impl Encode for Rope {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.length.encode(encoder)?;
+        let mut reader = self.read();
+        for chunk in &mut reader {
+            encoder.writer().write(&chunk)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<Context> Decode<Context> for Rope {
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let length = usize::decode(decoder)?;
+        let mut bytes = Vec::with_capacity(length);
+
+        // SAFETY:
+        // - `bytes` has capacity of `length` already
+        // - `read` will return an error if exactly `length` bytes is not read, so no uninitialized
+        //   memory ever escapes this function.
+        unsafe {
+            bytes.set_len(length);
+        }
+        decoder.reader().read(&mut bytes)?;
+
+        Ok(Rope::from(bytes))
+    }
+}
+
+impl_borrow_decode!(Rope);
 
 pub mod ser_as_string {
     use serde::{Serializer, ser::Error};
