@@ -3,12 +3,13 @@ import { diff } from 'jest-diff'
 import { equals } from '@jest/expect-utils'
 
 type Batch = {
-  pendingRequestChecks: Set<Promise<void>>
+  pendingRequestChecks: Set<Promise<void> & { debugInfo?: string[] }>
   pendingRequests: Set<PendingRSCRequest>
 }
 
 type PendingRSCRequest = {
   url: string
+  headers: Record<string, string>
   route: Playwright.Route | null
   result: Promise<{
     text: string
@@ -20,12 +21,33 @@ type PendingRSCRequest = {
 }
 
 let currentBatch: Batch | null = null
+let currentTestController: AbortController | null = null
 
 type ExpectedResponseConfig = {
   includes: string
   block?: boolean | 'reject'
   allowMultipleResponses?: boolean
 }
+
+function testSignal() {
+  if (currentTestController === null) {
+    return null
+  } else {
+    return currentTestController.signal
+  }
+}
+
+beforeEach(() => {
+  currentTestController = new AbortController()
+})
+afterEach(function abortTestController() {
+  if (currentTestController === null) {
+    // We failed the test before we were able to run the beforeEach hook.
+  } else {
+    currentTestController.abort()
+    currentTestController = null
+  }
+})
 
 /**
  * Represents the expected responses sent by the server to fulfill requests
@@ -66,11 +88,13 @@ export function createRouterAct(
     allowErrorStatusCodes?: number[]
   }
 ): <T>(scope: () => Promise<T> | T, config?: ActConfig) => Promise<T> {
+  let waitingForIdleCallback = false
   /**
    * Helper function to wait for requestIdleCallback with retry logic.
    * Retries up to 3 times if "Execution context was destroyed" error occurs.
    */
   async function waitForIdleCallback(): Promise<void> {
+    waitingForIdleCallback = true
     const maxRetries = 3
     const retryDelayMs = 100
 
@@ -79,6 +103,7 @@ export function createRouterAct(
         await page.evaluate(
           () => new Promise<void>((res) => requestIdleCallback(() => res()))
         )
+        waitingForIdleCallback = false
         return
       } catch (err) {
         const isLastAttempt = attempt === maxRetries - 1
@@ -91,6 +116,7 @@ export function createRouterAct(
           continue
         }
 
+        waitingForIdleCallback = false
         throw err
       }
     }
@@ -107,6 +133,10 @@ export function createRouterAct(
     scope: () => Promise<T> | T,
     config?: ActConfig
   ): Promise<T> {
+    const signal = testSignal()
+    if (signal === null) {
+      throw new Error('`act()` can only be used inside a test scope.')
+    }
     // Capture a stack trace for better async error messages.
     const error = new Error()
     if (Error.captureStackTrace) {
@@ -169,6 +199,49 @@ export function createRouterAct(
       }
     }
 
+    function handleAbort() {
+      const debugInfo: string[] = []
+      if (waitingForIdleCallback) {
+        debugInfo.push('pending requestIdleCallback')
+      }
+      if (currentBatch === null) {
+        debugInfo.push('no current batch')
+      } else {
+        if (currentBatch.pendingRequests.size === 0) {
+          debugInfo.push('no pending router requests')
+        } else {
+          debugInfo.push(
+            `${currentBatch.pendingRequests.size} pending router requests:\n` +
+              Array.from(currentBatch.pendingRequests)
+                .map(
+                  (req) =>
+                    ` - ${req.url} (${req.route === null ? 'no route' : 'some Route'}) Headers: ${JSON.stringify(req.headers)}`
+                )
+                .join('\n')
+          )
+        }
+
+        if (currentBatch.pendingRequestChecks.size === 0) {
+          debugInfo.push('no pending request checks')
+        } else {
+          debugInfo.push(
+            `${currentBatch.pendingRequestChecks.size} pending request checks:\n` +
+              Array.from(currentBatch.pendingRequestChecks)
+                .map(
+                  (requestCheck) =>
+                    ` - ${JSON.stringify(requestCheck.debugInfo)}`
+                )
+                .join('\n')
+          )
+        }
+      }
+
+      error.message =
+        'Test aborted while act was pending.\n' + debugInfo.join('\n')
+      console.error(error)
+    }
+    signal.addEventListener('abort', handleAbort)
+
     // Attach a route handler to intercept router requests for the duration
     // of the `act` scope. It will be removed before `act` exits.
     let onDidIssueFirstRequest: (() => void) | null = null
@@ -185,55 +258,58 @@ export function createRouterAct(
       // NOTE: The default check doesn't actually need to be async, but since
       // this logic is subtle, to preserve the ability to add an async
       // check later, I'm treating it as if it could possibly be async.
-      const checkIfRouterRequest = (async () => {
-        const headers = request.headers()
+      const checkIfRouterRequest: Promise<void> & { debugInfo?: string[] } =
+        (async () => {
+          const headers = request.headers()
 
-        // The default check includes navigations, prefetches, and actions.
-        const isRouterRequest =
-          headers['rsc'] !== undefined || // Matches navigations and prefetches
-          headers['next-action'] !== undefined // Matches Server Actions
+          // The default check includes navigations, prefetches, and actions.
+          const isRouterRequest =
+            headers['rsc'] !== undefined || // Matches navigations and prefetches
+            headers['next-action'] !== undefined // Matches Server Actions
 
-        if (isRouterRequest) {
-          // This request was initiated by the Next.js Router. Intercept it and
-          // add it to the current batch.
-          pendingRequests.add({
-            url: request.url(),
-            route,
-            // `act` controls the timing of when responses reach the client,
-            // but it should not affect the timing of when requests reach the
-            // server; we pass the request to the server the immediately.
-            result: (async () => {
-              const originalResponse = await page.request.fetch(request, {
-                maxRedirects: 0,
-              })
+          if (isRouterRequest) {
+            // This request was initiated by the Next.js Router. Intercept it and
+            // add it to the current batch.
+            pendingRequests.add({
+              url: request.url(),
+              headers,
+              route,
+              // `act` controls the timing of when responses reach the client,
+              // but it should not affect the timing of when requests reach the
+              // server; we pass the request to the server the immediately.
+              result: (async () => {
+                const originalResponse = await page.request.fetch(request, {
+                  maxRedirects: 0,
+                })
 
-              // WORKAROUND:
-              // intercepting responses with 'Transfer-Encoding: chunked' (used for streaming)
-              // seems to be problematic sometimes, making the browser error with `net::ERR_INCOMPLETE_CHUNKED_ENCODING`.
-              // In particular, this seems to happen when blocking a streaming navigation response. (but not always)
-              // Playwright buffers the whole body anyway, so we can remove the header to sidestep this.
-              const headers = originalResponse.headers()
-              delete headers['transfer-encoding']
+                // WORKAROUND:
+                // intercepting responses with 'Transfer-Encoding: chunked' (used for streaming)
+                // seems to be problematic sometimes, making the browser error with `net::ERR_INCOMPLETE_CHUNKED_ENCODING`.
+                // In particular, this seems to happen when blocking a streaming navigation response. (but not always)
+                // Playwright buffers the whole body anyway, so we can remove the header to sidestep this.
+                const headers = originalResponse.headers()
+                delete headers['transfer-encoding']
 
-              return {
-                text: await originalResponse.text(),
-                body: await originalResponse.body(),
-                headers,
-                status: originalResponse.status(),
-              }
-            })(),
-            didProcess: false,
-          })
-          if (onDidIssueFirstRequest !== null) {
-            onDidIssueFirstRequest()
-            onDidIssueFirstRequest = null
+                return {
+                  text: await originalResponse.text(),
+                  body: await originalResponse.body(),
+                  headers,
+                  status: originalResponse.status(),
+                }
+              })(),
+              didProcess: false,
+            })
+            if (onDidIssueFirstRequest !== null) {
+              onDidIssueFirstRequest()
+              onDidIssueFirstRequest = null
+            }
+            return
           }
-          return
-        }
-        // This is some other request not related to the Next.js Router. Allow
-        // it to continue as normal.
-        route.continue()
-      })()
+          // This is some other request not related to the Next.js Router. Allow
+          // it to continue as normal.
+          route.continue()
+        })()
+      checkIfRouterRequest.debugInfo = [request.url()]
 
       pendingRequestChecks.add(checkIfRouterRequest)
       await checkIfRouterRequest
@@ -273,6 +349,9 @@ export function createRouterAct(
     try {
       // Call the user-provided scope function
       const returnValue = await scope()
+      if (signal.aborted) {
+        console.error('Test aborted during `act` scope.')
+      }
 
       // Wait until the first request is initiated, up to some timeout.
       if (expectedResponses !== null && batch.pendingRequests.size === 0) {
@@ -493,6 +572,7 @@ ${fulfilled.body}
                   if (res.url() === req.url()) {
                     batch.pendingRequests.add({
                       url: req.url(),
+                      headers: req.headers(),
                       route: null,
                       result: (async () => {
                         return {
@@ -584,6 +664,7 @@ ${fulfilled.body}
       currentBatch = prevBatch
       await page.unroute('**/*', routeHandler)
       page.off('framedetached', hardNavigationHandler)
+      signal.removeEventListener('abort', handleAbort)
     }
   }
 
