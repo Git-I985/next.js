@@ -19,6 +19,7 @@ pub struct PathRegex {
 
 impl PartialEq for PathRegex {
     fn eq(&self, other: &Self) -> bool {
+        // Context: https://github.com/rust-lang/regex/issues/313#issuecomment-269898900
         self.regex.as_str() == other.regex.as_str() && self.named_params == other.named_params
     }
 }
