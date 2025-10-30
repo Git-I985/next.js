@@ -1,6 +1,7 @@
 import { bold, cyan, red, yellow } from '../../../../lib/picocolors'
 import { SimpleWebpackError } from './simpleWebpackError'
 
+import { codeFrameColumns } from '../../../../shared/lib/errors/code-frame'
 const regexScssError =
   /SassError: (.+)\n\s+on line (\d+) [\s\S]*?>> (.+)\n\s*(-+)\^$/m
 
@@ -22,8 +23,6 @@ export function getScssError(
     let frame: string | undefined
     if (fileContent) {
       try {
-        const { codeFrameColumns } =
-          require('next/dist/compiled/babel/code-frame') as typeof import('next/dist/compiled/babel/code-frame')
         frame = codeFrameColumns(
           fileContent,
           { start: { line: lineNumber, column } },

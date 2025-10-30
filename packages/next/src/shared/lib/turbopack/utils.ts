@@ -11,6 +11,7 @@ import { deobfuscateText } from '../magic-identifier'
 import type { EntryKey } from './entry-key'
 import * as Log from '../../../build/output/log'
 import type { NextConfigComplete } from '../../../server/config-shared'
+import { codeFrameColumns } from '../errors/code-frame'
 
 type IssueKey = `${Issue['severity']}-${Issue['filePath']}-${string}-${string}`
 export type IssuesMap = Map<IssueKey, Issue>
@@ -132,24 +133,24 @@ export function formatIssue(issue: Issue) {
     !isInternal(filePath)
   ) {
     const { start, end } = source.range
-    const { codeFrameColumns } =
-      require('next/dist/compiled/babel/code-frame') as typeof import('next/dist/compiled/babel/code-frame')
 
-    message +=
-      codeFrameColumns(
-        source.source.content,
-        {
-          start: {
-            line: start.line + 1,
-            column: start.column + 1,
-          },
-          end: {
-            line: end.line + 1,
-            column: end.column + 1,
-          },
+    const codeFrame = codeFrameColumns(
+      source.source.content,
+      {
+        start: {
+          line: start.line + 1,
+          column: start.column + 1,
         },
-        { forceColor: true }
-      ).trim() + '\n\n'
+        end: {
+          line: end.line + 1,
+          column: end.column + 1,
+        },
+      },
+      { forceColor: true }
+    ).trim()
+    if (codeFrame) {
+      message += codeFrame + '\n\n'
+    }
   }
 
   if (description) {
