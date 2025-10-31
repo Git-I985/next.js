@@ -17,39 +17,39 @@ import {
 } from 'next-test-utils'
 import assert from 'assert'
 
+let appPort
+let app
 const appDir = join(__dirname, '../')
 const nextConfig = new File(join(appDir, 'next.config.js'))
-const ctx = {
+const ctx: Record<string, any> = {
   basePath: '',
   appDir,
 }
 
 describe('i18n Support', () => {
   beforeAll(async () => {
-    ctx.externalPort = await findPort()
-    ctx.externalApp = http.createServer((req, res) => {
+    appPort = await findPort()
+    app = http.createServer((req, res) => {
       res.statusCode = 200
       res.end(JSON.stringify({ url: req.url, external: true }))
     })
-    await new Promise((resolve, reject) => {
-      ctx.externalApp.listen(ctx.externalPort, (err) =>
-        err ? reject(err) : resolve()
-      )
+    await new Promise<void>((resolve, reject) => {
+      app.listen(appPort, (err) => (err ? reject(err) : resolve()))
     })
   })
-  afterAll(() => ctx.externalApp.close())
+  afterAll(() => app.close())
   ;(process.env.TURBOPACK_BUILD ? describe.skip : describe)(
     'development mode',
     () => {
-      const curCtx = {
+      const curCtx: Record<string, any> = {
         ...ctx,
         isDev: true,
       }
       beforeAll(async () => {
         await fs.remove(join(appDir, '.next'))
-        nextConfig.replace(/__EXTERNAL_PORT__/g, ctx.externalPort)
-        curCtx.appPort = await findPort()
-        curCtx.app = await launchApp(appDir, curCtx.appPort)
+        nextConfig.replace(/__EXTERNAL_PORT__/g, appPort)
+        appPort = await findPort()
+        curCtx.app = await launchApp(appDir, appPort)
         curCtx.buildId = 'development'
       })
       afterAll(async () => {
@@ -65,7 +65,7 @@ describe('i18n Support', () => {
     () => {
       beforeAll(async () => {
         await fs.remove(join(appDir, '.next'))
-        nextConfig.replace(/__EXTERNAL_PORT__/g, ctx.externalPort)
+        nextConfig.replace(/__EXTERNAL_PORT__/g, appPort)
         await nextBuild(appDir)
         ctx.appPort = await findPort()
         ctx.app = await nextStart(appDir, ctx.appPort)
@@ -221,10 +221,7 @@ describe('i18n Support', () => {
     const runSlashTests = (curCtx) => {
       if (!curCtx.isDev) {
         it('should preload all locales data correctly', async () => {
-          const browser = await webdriver(
-            curCtx.appPort,
-            `${curCtx.basePath}/mixed`
-          )
+          const browser = await webdriver(appPort, `${curCtx.basePath}/mixed`)
 
           await browser.eval(`(function() {
             document.querySelector('#to-gsp-en-us').scrollIntoView()
@@ -251,14 +248,9 @@ describe('i18n Support', () => {
         })
 
         it('should have correct locale domain hrefs', async () => {
-          const res = await fetchViaHTTP(
-            curCtx.appPort,
-            '/do-BE/frank/',
-            undefined,
-            {
-              redirect: 'manual',
-            }
-          )
+          const res = await fetchViaHTTP(appPort, '/do-BE/frank/', undefined, {
+            redirect: 'manual',
+          })
           expect(res.status).toBe(200)
 
           const html = await res.text()
@@ -275,7 +267,7 @@ describe('i18n Support', () => {
 
       it('should redirect correctly', async () => {
         for (const locale of nonDomainLocales) {
-          const res = await fetchViaHTTP(curCtx.appPort, '/', undefined, {
+          const res = await fetchViaHTTP(appPort, '/', undefined, {
             redirect: 'manual',
             headers: {
               'accept-language': locale,
@@ -306,7 +298,7 @@ describe('i18n Support', () => {
             ['/gssp/[slug]', '/gssp/first/'],
           ]) {
             const res = await fetchViaHTTP(
-              curCtx.appPort,
+              appPort,
               `${locale === 'en-US' ? '' : `/${locale}`}${asPath}`,
               undefined,
               {
@@ -335,7 +327,7 @@ describe('i18n Support', () => {
             '/gssp/first/',
           ]) {
             const res = await fetchViaHTTP(
-              curCtx.appPort,
+              appPort,
               `/${locale}/${defaultLocale}${asPath}`,
               undefined,
               {
@@ -359,7 +351,7 @@ describe('i18n Support', () => {
       it('should navigate between pages correctly', async () => {
         for (const locale of nonDomainLocales) {
           const localePath = `/${locale !== 'en-US' ? `${locale}/` : ''}`
-          const browser = await webdriver(curCtx.appPort, localePath)
+          const browser = await webdriver(appPort, localePath)
 
           await browser.eval('window.beforeNav = 1')
           await browser.elementByCss('#to-gsp').click()
@@ -426,7 +418,7 @@ describe('i18n Support', () => {
     ;(process.env.TURBOPACK_BUILD ? describe.skip : describe)(
       'development mode',
       () => {
-        const curCtx = {
+        const curCtx: Record<string, any> = {
           ...ctx,
           isDev: true,
         }
@@ -434,8 +426,8 @@ describe('i18n Support', () => {
           await fs.remove(join(appDir, '.next'))
           nextConfig.replace('// trailingSlash', 'trailingSlash')
 
-          curCtx.appPort = await findPort()
-          curCtx.app = await launchApp(appDir, curCtx.appPort)
+          appPort = await findPort()
+          curCtx.app = await launchApp(appDir, appPort)
         })
         afterAll(async () => {
           nextConfig.restore()
@@ -456,8 +448,8 @@ describe('i18n Support', () => {
           nextConfig.replace('// trailingSlash', 'trailingSlash')
 
           await nextBuild(appDir)
-          curCtx.appPort = await findPort()
-          curCtx.app = await nextStart(appDir, curCtx.appPort)
+          appPort = await findPort()
+          curCtx.app = await nextStart(appDir, appPort)
         })
         afterAll(async () => {
           nextConfig.restore()
@@ -473,7 +465,7 @@ describe('i18n Support', () => {
     const runSlashTests = (curCtx) => {
       it('should redirect correctly', async () => {
         for (const locale of nonDomainLocales) {
-          const res = await fetchViaHTTP(curCtx.appPort, '/', undefined, {
+          const res = await fetchViaHTTP(appPort, '/', undefined, {
             redirect: 'manual',
             headers: {
               'accept-language': locale,
@@ -496,7 +488,7 @@ describe('i18n Support', () => {
     ;(process.env.TURBOPACK_BUILD ? describe.skip : describe)(
       'development mode',
       () => {
-        const curCtx = {
+        const curCtx: Record<string, any> = {
           ...ctx,
           isDev: true,
         }
@@ -504,8 +496,8 @@ describe('i18n Support', () => {
           await fs.remove(join(appDir, '.next'))
           nextConfig.replace('// trailingSlash: true', 'trailingSlash: false')
 
-          curCtx.appPort = await findPort()
-          curCtx.app = await launchApp(appDir, curCtx.appPort)
+          appPort = await findPort()
+          curCtx.app = await launchApp(appDir, appPort)
         })
         afterAll(async () => {
           nextConfig.restore()
@@ -524,8 +516,8 @@ describe('i18n Support', () => {
           nextConfig.replace('// trailingSlash: true', 'trailingSlash: false')
 
           await nextBuild(appDir)
-          curCtx.appPort = await findPort()
-          curCtx.app = await nextStart(appDir, curCtx.appPort)
+          appPort = await findPort()
+          curCtx.app = await nextStart(appDir, appPort)
         })
         afterAll(async () => {
           nextConfig.restore()
