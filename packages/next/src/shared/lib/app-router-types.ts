@@ -302,6 +302,8 @@ export type NavigationFlightResponse = {
   f: FlightData
   /** prerendered */
   S: boolean
+  /** postponed - indicates if response is partial (has dynamic holes) */
+  s: boolean
 }
 
 // Response from `createFromFetch` for server actions. Action's flight data can be null

@@ -57,7 +57,6 @@ import {
   RSC_HEADER,
   NEXT_ROUTER_SEGMENT_PREFETCH_HEADER,
   NEXT_HMR_REFRESH_HASH_COOKIE,
-  NEXT_DID_POSTPONE_HEADER,
   NEXT_REQUEST_ID_HEADER,
   NEXT_HTML_REQUEST_ID_HEADER,
 } from '../../client/components/app-router-headers'
@@ -453,8 +452,9 @@ function NonIndex({
 async function generateDynamicRSCPayload(
   ctx: AppRenderContext,
   options?: {
-    actionResult: ActionResult
-    skipFlight: boolean
+    actionResult?: ActionResult
+    skipFlight?: boolean
+    isPartial?: boolean
   }
 ): Promise<RSCPayload> {
   // Flight data that is going to be passed to the browser.
@@ -549,6 +549,7 @@ async function generateDynamicRSCPayload(
     b: ctx.sharedContext.buildId,
     f: flightData,
     S: workStore.isStaticGeneration,
+    s: options?.isPartial ?? false,
   }
 }
 
@@ -829,7 +830,6 @@ async function generateDynamicFlightRenderResultWithStagesInDev(
 
 async function generateRuntimePrefetchResult(
   req: BaseNextRequest,
-  res: BaseNextResponse,
   ctx: AppRenderContext,
   requestStore: RequestStore
 ): Promise<RenderResult> {
@@ -894,10 +894,6 @@ async function generateRuntimePrefetchResult(
 
   applyMetadataFromPrerenderResult(response, metadata, workStore)
   metadata.fetchMetrics = ctx.workStore.fetchMetrics
-
-  if (response.isPartial) {
-    res.setHeader(NEXT_DID_POSTPONE_HEADER, '1')
-  }
 
   return new FlightRenderResult(response.result.prelude, metadata)
 }
@@ -1038,6 +1034,51 @@ async function prospectiveRuntimeServerPrerender(
   }
 }
 
+/**
+ * Creates a TransformStream that updates the RSC payload to set the `s` (isPartial) property to true.
+ * This is used when we determine after serialization that a runtime prefetch response contains dynamic holes.
+ */
+function createIsPartialTransformStream(): TransformStream<
+  Uint8Array,
+  Uint8Array
+> {
+  const textDecoder = new TextDecoder()
+  const textEncoder = new TextEncoder()
+  let buffer = ''
+  let foundAndReplaced = false
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      if (foundAndReplaced) {
+        // Already replaced, just pass through
+        controller.enqueue(chunk)
+        return
+      }
+
+      // Decode and add to buffer
+      buffer += textDecoder.decode(chunk, { stream: true })
+
+      // Look for the pattern "s":false and replace with "s":true
+      if (buffer.includes('"s":false')) {
+        buffer = buffer.replace('"s":false', '"s":true')
+        foundAndReplaced = true
+      }
+
+      // If we found and replaced, or if buffer is getting large, flush it
+      if (foundAndReplaced || buffer.length > 1024) {
+        controller.enqueue(textEncoder.encode(buffer))
+        buffer = ''
+      }
+    },
+    flush(controller) {
+      // Flush any remaining buffer
+      if (buffer) {
+        controller.enqueue(textEncoder.encode(buffer))
+      }
+    },
+  })
+}
+
 async function finalRuntimeServerPrerender(
   ctx: AppRenderContext,
   getPayload: () => any,
@@ -1149,6 +1190,15 @@ async function finalRuntimeServerPrerender(
       finalServerController.abort()
     }
   )
+
+  // If the render was determined to be dynamic, we need to update the RSC payload stream
+  // to reflect that by setting the `s` (isPartial) property to true.
+  // React has already serialized the payload with `s: false`, so we need to transform the stream.
+  if (serverIsDynamic) {
+    result.prelude = result.prelude.pipeThrough(
+      createIsPartialTransformStream()
+    )
+  }
 
   return {
     result,
@@ -2003,7 +2053,7 @@ async function renderToHTMLOrFlightImpl(
 
     if (isRSCRequest) {
       if (isRuntimePrefetchRequest) {
-        return generateRuntimePrefetchResult(req, res, ctx, requestStore)
+        return generateRuntimePrefetchResult(req, ctx, requestStore)
       } else {
         if (
           process.env.NODE_ENV === 'development' &&
